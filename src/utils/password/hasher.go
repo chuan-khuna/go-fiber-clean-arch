@@ -4,6 +4,7 @@ package password
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -111,4 +112,10 @@ func VerifyPassword(password, encodedHash string) (match bool, err error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+func HashSHA256(dataString string) string {
+	hashedByte := sha256.Sum256(([]byte(dataString)))
+	hashedString := fmt.Sprintf("%x", hashedByte)
+	return hashedString
 }

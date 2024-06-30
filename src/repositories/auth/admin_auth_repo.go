@@ -5,6 +5,7 @@ import (
 	auth_entities "fiber-app/src/entities/auth"
 	auth_usecases "fiber-app/src/usecases/auth"
 	jwt_utils "fiber-app/src/utils/jwt"
+	password_utils "fiber-app/src/utils/password"
 	"fmt"
 	"time"
 
@@ -46,10 +47,12 @@ func (r *GormAdminAuthRepository) IssueRefreshToken(account auth_entities.AdminA
 
 	token, _ := jwt_utils.VerifyToken(tokenString)
 
+	hashedTokenString := password_utils.HashSHA256(tokenString)
+
 	// add data to db
 	r.db.Create(&auth_entities.AdminRefreshToken{
 		AdminAccountID: account.ID,
-		Token:          tokenString,
+		Token:          hashedTokenString,
 		Iat:            int64(token.Claims.(jwt.MapClaims)["iat"].(float64)),
 		Exp:            int64(token.Claims.(jwt.MapClaims)["exp"].(float64)),
 		TokenCreatedAt: token.Claims.(jwt.MapClaims)["createdAt"].(string),
@@ -57,7 +60,7 @@ func (r *GormAdminAuthRepository) IssueRefreshToken(account auth_entities.AdminA
 	})
 
 	// invalidate old refresh token, except the current one
-	r.db.Model(&auth_entities.AdminRefreshToken{}).Where("admin_account_id = ? AND token != ?", account.ID, tokenString).Update("is_valid", false)
+	r.db.Model(&auth_entities.AdminRefreshToken{}).Where("admin_account_id = ? AND token != ?", account.ID, hashedTokenString).Update("is_valid", false)
 
 	// delete tokens to clean up the table
 	r.db.Where("exp < ?", time.Now().Unix()).Delete(&auth_entities.AdminRefreshToken{})
@@ -104,6 +107,7 @@ func (r *GormAdminAuthRepository) GetAccountFromToken(token string) (auth_entiti
 func (r *GormAdminAuthRepository) RotateRefreshToken(token string) (string, error) {
 
 	oldToken, err := jwt_utils.VerifyToken(token)
+	hashedOldToken := password_utils.HashSHA256(token)
 
 	if err != nil {
 		return "", err
@@ -115,7 +119,7 @@ func (r *GormAdminAuthRepository) RotateRefreshToken(token string) (string, erro
 
 	// check if this token is valid
 	var refreshTokenHistory auth_entities.AdminRefreshToken
-	r.db.Find(&refreshTokenHistory, "token", token)
+	r.db.Find(&refreshTokenHistory, "token", hashedOldToken)
 
 	accountID := refreshTokenHistory.AdminAccountID
 
@@ -134,6 +138,7 @@ func (r *GormAdminAuthRepository) RotateRefreshToken(token string) (string, erro
 
 	newTokenString, err := jwt_utils.RotateToken(token)
 	newToken, _ := jwt_utils.VerifyToken(newTokenString)
+	hashedNewTokenString := password_utils.HashSHA256(newTokenString)
 
 	if err != nil {
 		return "", err
@@ -142,7 +147,7 @@ func (r *GormAdminAuthRepository) RotateRefreshToken(token string) (string, erro
 	// add data to db
 	r.db.Create(&auth_entities.AdminRefreshToken{
 		AdminAccountID: accountID,
-		Token:          newTokenString,
+		Token:          hashedNewTokenString,
 		Iat:            int64(newToken.Claims.(jwt.MapClaims)["iat"].(float64)),
 		Exp:            int64(newToken.Claims.(jwt.MapClaims)["exp"].(float64)),
 		TokenCreatedAt: newToken.Claims.(jwt.MapClaims)["createdAt"].(string),
@@ -150,7 +155,7 @@ func (r *GormAdminAuthRepository) RotateRefreshToken(token string) (string, erro
 	})
 
 	// invalidate old refresh token, except the current one
-	r.db.Model(&auth_entities.AdminRefreshToken{}).Where("admin_account_id = ? AND token != ?", accountID, newTokenString).Update("is_valid", false)
+	r.db.Model(&auth_entities.AdminRefreshToken{}).Where("admin_account_id = ? AND token != ?", accountID, hashedNewTokenString).Update("is_valid", false)
 
 	return newTokenString, nil
 }
